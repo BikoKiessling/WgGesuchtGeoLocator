@@ -10,45 +10,41 @@ class Geofinder extends React.Component {
   getData = async (
     currentIndex: number = 0,
     maxPage?: number,
-  ): { links: string[]; addresses: string[] } => {
-    let addresses = [];
-    let links = [];
+  ): Promise<{ links: string[]; addresses: string[] }> => {
+    let addresses: string[];
+    let links: string[];
     const data = await fetch(this.getDataUrl(currentIndex));
     const text = await data.text();
     const parser = new DOMParser();
     const doc = parser.parseFromString(text, 'text/html');
     if (!maxPage) {
-      const maxPage = doc.querySelectorAll('ul.pagination > li').length - 3 ?? 0;
-      console.log('max pages' + maxPage);
+      // Todo this for some fcked up reason returns a different pagination layout when xhr requesting the resource than when manually loading it.
+      /*    maxPages =
+        parseInt(doc.querySelector('.pagination li:nth-last-child(2) a').innerText, 10) - 1; */
+      maxPage = 3;
     }
-    links = links.concat(
-      Array.from(
-        doc.querySelectorAll(
-          'div:not(.clicked_partner) > div >div.col-sm-8.card_body > div > div > h3 > a',
-        ),
-      ).map((a) => a.getAttribute('href')),
-    );
-    console.log(`links ${links.length}`);
-    addresses = addresses.concat(
-      Array.from(
-        doc.querySelectorAll(
-          'div:not(.clicked_partner) > div >div.col-sm-8.card_body > div > div.col-xs-11 > span:first-child',
-        ),
-      ).map((span) => span.innerText.split('|')[2].trim()),
-    );
-    console.log(`addresses ${addresses}`);
+    links = Array.from(
+      doc.querySelectorAll(
+        'div:not(.clicked_partner) > div >div.col-sm-8.card_body > div > div > h3 > a',
+      ),
+    ).map((a) => a.getAttribute('href'));
+
+    addresses = Array.from(
+      doc.querySelectorAll(
+        'div:not(.clicked_partner) > div >div.col-sm-8.card_body > div > div.col-xs-11 > span:first-child',
+      ),
+    ).map((span) => span.innerText.split('|')[2].trim());
 
     if (currentIndex < maxPage) {
-      currentIndex = currentIndex + 1;
-      console.log('another one');
-
+      currentIndex += 1;
       const data = await this.getData(currentIndex, maxPage);
-      links.push(data.links);
-      addresses.push(data.addresses);
+      addresses = addresses.concat(data.addresses);
+      links = links.concat(data.links);
     }
 
     return { addresses, links };
   };
+
   private getDataUrl(currentIndex: number) {
     return `https://www.wg-gesucht.de/wg-zimmer-in-Wien.163.0.1.${currentIndex}.html?category=0&city_id=163&rent_type=0&noDeact=1&rMax=600&ot=2991%2C3004&img=1&rent_types%5B0%5D=0`;
   }
@@ -64,12 +60,21 @@ class Geofinder extends React.Component {
     });
 
     const { addresses, links } = await this.getData(0);
-    addresses.forEach((address, index) => this.codeAddress(address, links[index]));
+    console.log('addresses count', addresses.length);
+    console.log('links count', links.length);
+    addresses.forEach((address, index) => {
+      //counteracts rate limiting by google
+      setTimeout(() => {
+        this.codeAddress(address, links[index]);
+      }, 1000 * index);
+    });
+
   }
 
   codeAddress(address, link) {
     const geocoder = new google.maps.Geocoder();
     geocoder.geocode({ address }, (results, status) => {
+      console.log('status: ' + status);
       if (status === 'OK') {
         const latLng = {
           lat: results[0].geometry.location.lat(),
@@ -81,7 +86,6 @@ class Geofinder extends React.Component {
           label: address,
         });
         google.maps.event.addListener(marker, 'click', () => {
-          console.log(`clicked link${link}`);
           window.open(`https://www.wg-gesucht.de/${link}`, '_blank').focus();
         });
       }
